@@ -7,7 +7,7 @@ from inferno.utils.io_utils import yaml2dict
 
 from torch.utils.data.dataloader import DataLoader
 
-from .membranes import MembraneVolume, AffinityVolume
+from .membranes import MembraneVolume, AffinityVolume, SegmentationVolume
 from .raw import RawVolume
 
 
@@ -16,29 +16,45 @@ class CREMIDataset(Zip):
         assert isinstance(volume_config, dict)
         assert isinstance(slicing_config, dict)
         assert 'raw' in volume_config
-        assert ('membranes' in volume_config) != ('affinities' in volume_config)
+        for key in volume_config.keys():
+            if key not in ['raw', 'membranes', 'affinities', 'segmentation', 'pmap']:
+                raise NotImplementedError(key)
+
         # Get kwargs for raw volume
         raw_volume_kwargs = dict(volume_config.get('raw'))
         raw_volume_kwargs.update(slicing_config)
         # Build raw volume
         self.raw_volume = RawVolume(name=name, **raw_volume_kwargs)
+
+        datasets2zip = [self.raw_volume]
         # Get kwargs for membrane or affinity volumes
         if 'membranes' in volume_config:
             membrane_volume_kwargs = dict(volume_config.get('membranes'))
             membrane_volume_kwargs.update(slicing_config)
             # Build membrane volume
-            self.membrane_or_affinity_volume = MembraneVolume(name=name, **membrane_volume_kwargs)
-        elif 'affinities' in volume_config:
+            self.membrane_volume = MembraneVolume(name=name, **membrane_volume_kwargs)
+            datasets2zip.append(self.membrane_volume)
+        if 'affinities' in volume_config:
             affinity_volume_kwargs = dict(volume_config.get('affinities'))
             affinity_volume_kwargs.update(slicing_config)
             # Build affinity volume
-            self.membrane_or_affinity_volume = AffinityVolume(name=name, **affinity_volume_kwargs)
-            pass
-        else:
-            raise NotImplementedError
+            self.affinity_volume = AffinityVolume(name=name, **affinity_volume_kwargs)
+            datasets2zip.append(self.affinity_volume)
+        if 'segmentation' in volume_config:
+            segm_volume_kwargs = dict(volume_config.get('segmentation'))
+            segm_volume_kwargs.update(slicing_config)
+            self.segmentation_volume = SegmentationVolume(name=name, **segm_volume_kwargs)
+            datasets2zip.append(self.segmentation_volume)
+        if 'pmap' in volume_config:
+            pmap_volume_kwargs = dict(volume_config.get('pmap'))
+            pmap_volume_kwargs.update(slicing_config)
+            # Build pmap volume
+            self.pmap_volume = RawVolume(name=name, **pmap_volume_kwargs)
+            datasets2zip.append(self.pmap_volume)
+
         # Initialize zip
-        super(CREMIDataset, self).__init__(self.raw_volume, self.membrane_or_affinity_volume,
-                                           sync=True)
+        super(CREMIDataset, self).__init__(*datasets2zip, sync=True)
+
         # Set master config (for transforms)
         self.master_config = {} if master_config is None else master_config
         # Get transforms
